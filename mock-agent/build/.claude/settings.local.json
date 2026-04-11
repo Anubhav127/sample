@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell:*)",
+      "Bash(sc query:*)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Read(//c/Users/TUF/Desktop/agent/mock-agent/**)",
+      "Bash(node build.js)"
+    ]
+  }
+}

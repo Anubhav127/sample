@@ -1,0 +1,6 @@
+{
+  "entryPoints": ["index.js"],
+  "outputPath": "../build",
+  "targets": ["node18-win-x64"],
+  "assets": []
+}

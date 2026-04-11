@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <Product
+    Id="*"
+    Name="Mock Agent"
+    Language="1033"
+    Version="1.4.0"
+    Manufacturer="Cybersio"
+    UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Description="Mock Agent Service Installer"
+      Manufacturer="Cybersio"
+      SummaryCodepage="1252" />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of Mock Agent is already installed."
+      Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      Hide the MSI's native Add/Remove Programs entry.
+      Without this, Windows shows TWO "Mock Agent" entries in Settings > Apps:
+      the native MSI entry (no password, bypasses uninstall.exe) and our custom
+      MockAgent registry entry (password-protected). Setting ARPSYSTEMCOMPONENT=1
+      suppresses the native MSI entry so the only visible uninstall path is our
+      custom uninstall.exe, which enforces the password check.
+      The {ProductCode} key still exists in the registry — uninstall.exe finds it
+      via registry scan and calls msiexec /x internally after verifying the password.
+    -->
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
+
+    <!-- Directory structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="MockAgent" />
+      </Directory>
+    </Directory>
+
+    <!-- Components -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+
+      <!-- mock-agent.exe -->
+      <Component Id="AgentExe" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
+        <File
+          Id="MockAgentExe"
+          Name="mock-agent.exe"
+          Source="$(var.BuildDir)\mock-agent.exe"
+          KeyPath="yes" />
+      </Component>
+
+      <!-- .env -->
+      <Component Id="AgentEnv" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012">
+        <File
+          Id="AgentEnvFile"
+          Name=".env"
+          Source="$(var.BuildDir)\.env"
+          KeyPath="yes" />
+      </Component>
+
+      <!-- nssm.exe -->
+      <Component Id="NssmExe" Guid="D3E4F5A6-B7C8-9012-DEF0-234567890123">
+        <File
+          Id="NssmExeFile"
+          Name="nssm.exe"
+          Source="$(var.BuildDir)\nssm.exe"
+          KeyPath="yes" />
+      </Component>
+
+      <!-- uninstall.exe -->
+      <Component Id="UninstallExe" Guid="E4F5A6B7-C8D9-0123-EF01-345678901234">
+        <File
+          Id="UninstallExeFile"
+          Name="uninstall.exe"
+          Source="$(var.BuildDir)\uninstall.exe"
+          KeyPath="yes" />
+      </Component>
+
+      <!--
+        Override the default Add/Remove Programs uninstall entry
+        so that clicking Uninstall in Settings launches our uninstall.exe
+        instead of invoking msiexec directly.
+      -->
+      <Component Id="UninstallRegistryEntry" Guid="F5A6B7C8-D9E0-1234-F012-456789012345">
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="DisplayName"
+          Value="Mock Agent"
+          Type="string"
+          KeyPath="yes" />
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="DisplayVersion"
+          Value="$(var.Version)"
+          Type="string" />
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="Publisher"
+          Value="Cybersio"
+          Type="string" />
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="UninstallString"
+          Value="[INSTALLFOLDER]uninstall.exe"
+          Type="string" />
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="NoModify"
+          Value="1"
+          Type="integer" />
+        <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MockAgent"
+          Name="NoRepair"
+          Value="1"
+          Type="integer" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Feature -->
+    <Feature Id="ProductFeature" Title="Mock Agent" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <!-- Custom Actions -->
+
+    <!--
+      Pre-install cleanup: stop and remove any existing service BEFORE registering
+      the new one. Runs on fresh install and upgrade (NOT REMOVE = not an uninstall).
+      Return="ignore" so it silently succeeds even if no prior service exists.
+      This is the key fix for SCCM-compatible silent upgrades: the new MSI handles
+      cleanup itself rather than relying on the old MSI's removal sequence.
+    -->
+    <CustomAction
+      Id="CA_StopExistingService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" stop MockAgentService confirm'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <CustomAction
+      Id="CA_RemoveExistingService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" remove MockAgentService confirm'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <!-- Install service via NSSM -->
+    <CustomAction
+      Id="CA_InstallService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" install MockAgentService "[INSTALLFOLDER]mock-agent.exe"'
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <CustomAction
+      Id="CA_SetServiceDescription"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" set MockAgentService Description "Mock Agent Service - Cybersio"'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <CustomAction
+      Id="CA_SetServiceAutoStart"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" set MockAgentService Start SERVICE_AUTO_START'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <CustomAction
+      Id="CA_StartService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" start MockAgentService'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <!-- Harden .env ACLs via icacls -->
+    <CustomAction
+      Id="CA_HardenEnvAcl_Inherit"
+      Directory="INSTALLFOLDER"
+      ExeCommand='icacls "[INSTALLFOLDER].env" /inheritance:r'
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <CustomAction
+      Id="CA_HardenEnvAcl_System"
+      Directory="INSTALLFOLDER"
+      ExeCommand='icacls "[INSTALLFOLDER].env" /grant SYSTEM:(F)'
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <CustomAction
+      Id="CA_HardenEnvAcl_Admins"
+      Directory="INSTALLFOLDER"
+      ExeCommand='icacls "[INSTALLFOLDER].env" /grant Administrators:(R)'
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <!-- Stop and remove service on uninstall -->
+    <CustomAction
+      Id="CA_StopService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" stop MockAgentService confirm'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <CustomAction
+      Id="CA_RemoveService"
+      Directory="INSTALLFOLDER"
+      ExeCommand='"[INSTALLFOLDER]nssm.exe" remove MockAgentService confirm'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <!-- Install / Upgrade / Uninstall sequence -->
+    <InstallExecuteSequence>
+
+      <!--
+        Install / upgrade path (NOT REMOVE = not an uninstall):
+        1. Stop any existing service (silent no-op if none exists)
+        2. Remove any existing service registration
+        3. Register the new service
+        4. Configure and start it
+      -->
+      <Custom Action="CA_StopExistingService"   After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="CA_RemoveExistingService"  After="CA_StopExistingService">NOT REMOVE</Custom>
+      <Custom Action="CA_InstallService"         After="CA_RemoveExistingService">NOT REMOVE</Custom>
+      <Custom Action="CA_SetServiceDescription"  After="CA_InstallService">NOT REMOVE</Custom>
+      <Custom Action="CA_SetServiceAutoStart"    After="CA_SetServiceDescription">NOT REMOVE</Custom>
+      <Custom Action="CA_HardenEnvAcl_Inherit"   After="CA_SetServiceAutoStart">NOT REMOVE</Custom>
+      <Custom Action="CA_HardenEnvAcl_System"    After="CA_HardenEnvAcl_Inherit">NOT REMOVE</Custom>
+      <Custom Action="CA_HardenEnvAcl_Admins"    After="CA_HardenEnvAcl_System">NOT REMOVE</Custom>
+      <Custom Action="CA_StartService"           After="CA_HardenEnvAcl_Admins">NOT REMOVE</Custom>
+
+      <!--
+        Uninstall path (REMOVE="ALL"):
+        Stop and remove the service before files are deleted.
+      -->
+      <Custom Action="CA_StopService"   Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="CA_RemoveService" After="CA_StopService">REMOVE="ALL"</Custom>
+
+    </InstallExecuteSequence>
+
+  </Product>
+</Wix>
