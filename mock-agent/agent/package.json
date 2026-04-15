@@ -1,6 +1,6 @@
 {
   "name": "mock-agent",
-  "version": "1.4.0",
+  "version": "1.2.0",
   "description": "Mock TBNAC agent for installer testing",
   "main": "index.js",
   "scripts": {
